@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Lichs.MCP.Core.Models;
 using System.Text;
+using System.Reflection;
 
 namespace Lichs.MCP.Core;
 
@@ -107,7 +108,7 @@ public class McpServer
                 catch (McpException mcpEx)
                 {
                     Log($"[MCP ERROR]: {mcpEx.Message}");
-                    error = new JsonRpcError { Code = mcpEx.Code, Message = mcpEx.Message, Data = mcpEx.Data };
+                    error = new JsonRpcError { Code = mcpEx.Code, Message = mcpEx.Message, Data = mcpEx.ErrorData };
                 }
                 catch (Exception ex)
                 {
@@ -173,4 +174,82 @@ public class McpServer
     }
 
     private record ToolDefinition(string Name, string Description, object InputSchema, Func<JsonElement, string> Handler);
+
+    public void RegisterToolsFromAssembly(Assembly assembly)
+    {
+        var methods = assembly.GetTypes()
+            .SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.Static))
+            .Where(m => m.GetCustomAttribute<Lichs.MCP.Core.Attributes.McpToolAttribute>() != null);
+
+        foreach (var method in methods)
+        {
+            var attr = method.GetCustomAttribute<Lichs.MCP.Core.Attributes.McpToolAttribute>()!;
+            var schema = Lichs.MCP.Core.Utils.JsonSchemaGenerator.GenerateSchema(method);
+            
+            RegisterTool(attr.Name, attr.Description ?? "", schema, args =>
+            {
+                var parameters = method.GetParameters();
+                var invokeArgs = new object?[parameters.Length];
+
+                for (int i = 0; i < parameters.Length; i++)
+                {
+                    var param = parameters[i];
+                    var paramName = param.Name!; // Valid for Reflection
+                    
+                    if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(paramName, out var propElement))
+                    {
+                        // Deserialization logic
+                        try 
+                        {
+                            invokeArgs[i] =  JsonSerializer.Deserialize(propElement.GetRawText(), param.ParameterType, _jsonOptions);
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new McpException($"Invalid parameter '{paramName}': {ex.Message}", -32602); 
+                        }
+                    }
+                    else if (param.HasDefaultValue)
+                    {
+                        invokeArgs[i] = param.DefaultValue;
+                    }
+                    else if (Nullable.GetUnderlyingType(param.ParameterType) != null || !param.ParameterType.IsValueType)
+                    {
+                        // Reference types or Nullables can be null if missing and not required logic handled earlier
+                         // But if Required=true (default in Generator), we should have thrown earlier? 
+                         // For dynamic binding, let's strictly check if McpParameter says required, or logic.
+                         // For now, passing null is default behavior for missing non-default params.
+                         invokeArgs[i] = null;
+                    }
+                    else
+                    {
+                         throw new McpException($"Missing required parameter '{paramName}'", -32602);
+                    }
+                }
+
+                var result = method.Invoke(null, invokeArgs);
+
+                // Handle return type
+                if (result == null) return "null";
+                if (method.ReturnType == typeof(string)) return (string)result;
+                if (method.ReturnType == typeof(void) || method.ReturnType == typeof(Task)) return "success";
+                
+                // For Task<T>
+                if (result is Task task)
+                {
+                    task.GetAwaiter().GetResult(); // Sync wait for now, as Handler delegate is synchronous func currently
+                    // If Generic Task<T>, get Result.
+                    var taskType = task.GetType();
+                    if (taskType.IsGenericType)
+                    {
+                        var resultProp = taskType.GetProperty("Result");
+                        var taskResult = resultProp?.GetValue(task);
+                        return taskResult is string s ? s : JsonSerializer.Serialize(taskResult, _jsonOptions);
+                    }
+                    return "success";
+                }
+
+                return JsonSerializer.Serialize(result, _jsonOptions);
+            });
+        }
+    }
 }
