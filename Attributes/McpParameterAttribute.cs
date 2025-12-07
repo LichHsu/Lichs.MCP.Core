@@ -1,6 +1,6 @@
 namespace Lichs.MCP.Core.Attributes;
 
-[AttributeUsage(AttributeTargets.Parameter, Inherited = false)]
+[AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property, Inherited = false)]
 public class McpParameterAttribute : Attribute
 {
     public string? Description { get; }

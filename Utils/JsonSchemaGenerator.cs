@@ -1,7 +1,7 @@
+using Lichs.MCP.Core.Attributes;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Lichs.MCP.Core.Attributes;
 
 namespace Lichs.MCP.Core.Utils;
 
@@ -49,10 +49,10 @@ public static class JsonSchemaGenerator
         if (Nullable.GetUnderlyingType(type) is Type underlyingType)
         {
             type = underlyingType;
-             // JSON schema usually handles nullability via logic or multiple types, 
-             // but for MCP simple tools, often we just document the base type.
-             // Or we could do type = ["string", "null"] but standard MCP clients expect simple schemas.
-             // We'll treat as base type but maybe not required (handled in parent).
+            // JSON schema usually handles nullability via logic or multiple types, 
+            // but for MCP simple tools, often we just document the base type.
+            // Or we could do type = ["string", "null"] but standard MCP clients expect simple schemas.
+            // We'll treat as base type but maybe not required (handled in parent).
         }
 
         if (type == typeof(string))
@@ -84,8 +84,8 @@ public static class JsonSchemaGenerator
         }
         else if (type == typeof(JsonElement) || type == typeof(object))
         {
-             // Fallback for raw JSON or generic object
-             schema["type"] = "object";
+            // Fallback for raw JSON or generic object
+            schema["type"] = "object";
         }
         else
         {
@@ -93,17 +93,17 @@ public static class JsonSchemaGenerator
             // Recursively generate schema for properties
             schema["type"] = "object";
             var props = new Dictionary<string, object>();
-            
+
             // Simple DTO usually just public properties
             foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
-                var pName = p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name 
+                var pName = p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name
                             ?? (JsonNamingPolicy.CamelCase.ConvertName(p.Name));
-                
+
                 var pDesc = p.GetCustomAttribute<McpParameterAttribute>()?.Description; // Re-use parameter attribute on property? Or specific?
-                // Or maybe just generic DescriptionAttribute? Let's assume Description if present.
-                // For now, minimal support for nested DTO description.
-                
+                                                                                        // Or maybe just generic DescriptionAttribute? Let's assume Description if present.
+                                                                                        // For now, minimal support for nested DTO description.
+
                 props[pName] = GenerateTypeSchema(p.PropertyType, pDesc);
             }
             schema["properties"] = props;

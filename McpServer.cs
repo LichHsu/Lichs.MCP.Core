@@ -1,7 +1,7 @@
-using System.Text.Json;
 using Lichs.MCP.Core.Models;
-using System.Text;
 using System.Reflection;
+using System.Text;
+using System.Text.Json;
 
 namespace Lichs.MCP.Core;
 
@@ -10,9 +10,9 @@ public class McpServer
     private readonly string _name;
     private readonly string _version;
     private readonly string _logPath;
-    
+
     private readonly Dictionary<string, ToolDefinition> _tools = new();
-    
+
     // JSON Options 需與原專案一致
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -48,7 +48,7 @@ public class McpServer
 
         // 2. MCP Loop
         Log($"=== {_name} Started ===");
-        
+
         try
         {
             while (true)
@@ -60,7 +60,7 @@ public class McpServer
                 Log($"[RECV]: {line}");
 
                 JsonRpcRequest? request;
-                try 
+                try
                 {
                     request = JsonSerializer.Deserialize<JsonRpcRequest>(line, _jsonOptions);
                 }
@@ -80,14 +80,14 @@ public class McpServer
                     switch (request.Method)
                     {
                         case "initialize":
-                             result = new
-                             {
-                                 protocolVersion = "2024-11-05",
-                                 capabilities = new { tools = new { listChanged = true } },
-                                 serverInfo = new { name = _name, version = _version }
-                             };
-                             break;
-                        
+                            result = new
+                            {
+                                protocolVersion = "2024-11-05",
+                                capabilities = new { tools = new { listChanged = true } },
+                                serverInfo = new { name = _name, version = _version }
+                            };
+                            break;
+
                         case "notifications/initialized":
                             // Handshake complete
                             break;
@@ -99,7 +99,7 @@ public class McpServer
                         case "tools/call":
                             result = HandleToolCall(request.Params);
                             break;
-                            
+
                         default:
                             // 忽略未知方法或通知
                             break;
@@ -112,8 +112,8 @@ public class McpServer
                 }
                 catch (Exception ex)
                 {
-                     Log($"[FATAL ERROR]: {ex}");
-                     error = new JsonRpcError { Code = -32603, Message = $"Internal Error: {ex.Message}" };
+                    Log($"[FATAL ERROR]: {ex}");
+                    error = new JsonRpcError { Code = -32603, Message = $"Internal Error: {ex.Message}" };
                 }
 
                 if (result != null || error != null)
@@ -138,11 +138,11 @@ public class McpServer
 
         if (!paramsEl.TryGetProperty("name", out var nameProp))
         {
-             throw new McpException("Missing 'name' in tool call params", -32602);
+            throw new McpException("Missing 'name' in tool call params", -32602);
         }
 
         string name = nameProp.GetString() ?? "";
-        
+
         if (!_tools.TryGetValue(name, out var tool))
         {
             throw new McpException($"Unknown tool: {name}", -32601);
@@ -150,11 +150,11 @@ public class McpServer
 
         if (!paramsEl.TryGetProperty("arguments", out var argsProp))
         {
-             throw new McpException("Missing 'arguments' in tool call params", -32602);
+            throw new McpException("Missing 'arguments' in tool call params", -32602);
         }
 
         string output = tool.Handler(argsProp);
-        
+
         // Wrap format to match standardized MCP output (content array)
         return new { content = new[] { new { type = "text", text = output } } };
     }
@@ -185,7 +185,7 @@ public class McpServer
         {
             var attr = method.GetCustomAttribute<Lichs.MCP.Core.Attributes.McpToolAttribute>()!;
             var schema = Lichs.MCP.Core.Utils.JsonSchemaGenerator.GenerateSchema(method);
-            
+
             RegisterTool(attr.Name, attr.Description ?? "", schema, args =>
             {
                 var parameters = method.GetParameters();
@@ -195,17 +195,17 @@ public class McpServer
                 {
                     var param = parameters[i];
                     var paramName = param.Name!; // Valid for Reflection
-                    
+
                     if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(paramName, out var propElement))
                     {
                         // Deserialization logic
-                        try 
+                        try
                         {
-                            invokeArgs[i] =  JsonSerializer.Deserialize(propElement.GetRawText(), param.ParameterType, _jsonOptions);
+                            invokeArgs[i] = JsonSerializer.Deserialize(propElement.GetRawText(), param.ParameterType, _jsonOptions);
                         }
                         catch (Exception ex)
                         {
-                            throw new McpException($"Invalid parameter '{paramName}': {ex.Message}", -32602); 
+                            throw new McpException($"Invalid parameter '{paramName}': {ex.Message}", -32602);
                         }
                     }
                     else if (param.HasDefaultValue)
@@ -215,14 +215,14 @@ public class McpServer
                     else if (Nullable.GetUnderlyingType(param.ParameterType) != null || !param.ParameterType.IsValueType)
                     {
                         // Reference types or Nullables can be null if missing and not required logic handled earlier
-                         // But if Required=true (default in Generator), we should have thrown earlier? 
-                         // For dynamic binding, let's strictly check if McpParameter says required, or logic.
-                         // For now, passing null is default behavior for missing non-default params.
-                         invokeArgs[i] = null;
+                        // But if Required=true (default in Generator), we should have thrown earlier? 
+                        // For dynamic binding, let's strictly check if McpParameter says required, or logic.
+                        // For now, passing null is default behavior for missing non-default params.
+                        invokeArgs[i] = null;
                     }
                     else
                     {
-                         throw new McpException($"Missing required parameter '{paramName}'", -32602);
+                        throw new McpException($"Missing required parameter '{paramName}'", -32602);
                     }
                 }
 
@@ -232,7 +232,7 @@ public class McpServer
                 if (result == null) return "null";
                 if (method.ReturnType == typeof(string)) return (string)result;
                 if (method.ReturnType == typeof(void) || method.ReturnType == typeof(Task)) return "success";
-                
+
                 // For Task<T>
                 if (result is Task task)
                 {
