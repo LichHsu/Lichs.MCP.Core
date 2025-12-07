@@ -33,10 +33,18 @@ public class McpServer
         _tools[name] = new ToolDefinition(name, description, inputSchema, handler);
     }
 
+    private bool _debugMode = false;
+
     public async Task RunAsync(string[] args)
     {
         Console.OutputEncoding = new UTF8Encoding(false);
         Console.InputEncoding = new UTF8Encoding(false);
+
+        // Check for debug flag
+        if (args.Contains("--debug"))
+        {
+            _debugMode = true;
+        }
 
         // 1. CLI 模式 (直接測試用)
         if (args.Length > 0 && args[0] == "--test")
@@ -47,7 +55,7 @@ public class McpServer
         }
 
         // 2. MCP Loop
-        Log($"=== {_name} Started ===");
+        Log($"=== {_name} Started (Debug: {_debugMode}) ===");
 
         try
         {
@@ -169,6 +177,7 @@ public class McpServer
 
     private void Log(string message)
     {
+        if (!_debugMode) return;
         try { File.AppendAllText(_logPath, $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}"); }
         catch { }
     }
