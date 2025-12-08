@@ -12,6 +12,9 @@ public class McpServer
     private readonly string _logPath;
 
     private readonly Dictionary<string, ToolDefinition> _tools = new();
+    private readonly Dictionary<string, ResourceDefinition> _resources = new();
+    private Func<List<ResourceInfo>>? _listResourcesHandler;
+    private Func<string, ResourceContent?>? _readResourceHandler;
 
     // JSON Options 需與原專案一致
     private static readonly JsonSerializerOptions _jsonOptions = new()
@@ -31,6 +34,12 @@ public class McpServer
     public void RegisterTool(string name, string description, object inputSchema, Func<JsonElement, string> handler)
     {
         _tools[name] = new ToolDefinition(name, description, inputSchema, handler);
+    }
+
+    public void RegisterResourceHandler(Func<List<ResourceInfo>> listHandler, Func<string, ResourceContent?> readHandler)
+    {
+        _listResourcesHandler = listHandler;
+        _readResourceHandler = readHandler;
     }
 
     private bool _debugMode = false;
@@ -91,7 +100,7 @@ public class McpServer
                             result = new
                             {
                                 protocolVersion = "2024-11-05",
-                                capabilities = new { tools = new { listChanged = true } },
+                                capabilities = new { tools = new { listChanged = true }, resources = new { listChanged = true, read = true } },
                                 serverInfo = new { name = _name, version = _version }
                             };
                             break;
@@ -108,8 +117,23 @@ public class McpServer
                             result = HandleToolCall(request.Params);
                             break;
 
+                        case "resources/list":
+                             result = HandleListResources();
+                             break;
+                        
+                        case "resources/read":
+                             result = HandleReadResource(request.Params);
+                             break;
+
                         default:
-                            // 忽略未知方法或通知
+                            if (request.Method.StartsWith("$/"))
+                            {
+                                // Ignore non-standard notifications
+                            }
+                            else
+                            {
+                                throw new McpException($"Method not found: {request.Method}", -32601);
+                            }
                             break;
                     }
                 }
@@ -167,6 +191,34 @@ public class McpServer
         return new { content = new[] { new { type = "text", text = output } } };
     }
 
+    private object HandleListResources()
+    {
+        var resources = _listResourcesHandler?.Invoke() ?? new List<ResourceInfo>();
+        return new { resources };
+    }
+
+    private object HandleReadResource(object? paramsObj)
+    {
+         if (paramsObj is not JsonElement paramsEl || !paramsEl.TryGetProperty("uri", out var uriProp))
+        {
+            throw new McpException("Missing 'uri' in resources/read params", -32602);
+        }
+
+        string uri = uriProp.GetString() ?? "";
+        if (_readResourceHandler == null)
+        {
+             throw new McpException("No resource handler registered", -32601);
+        }
+
+        var content = _readResourceHandler.Invoke(uri);
+        if (content == null)
+        {
+             throw new McpException($"Resource not found: {uri}", -32002);
+        }
+
+        return new { contents = new[] { content } };
+    }
+
     private void SendResponse(JsonRpcResponse response)
     {
         string json = JsonSerializer.Serialize(response, _jsonOptions);
@@ -183,6 +235,12 @@ public class McpServer
     }
 
     private record ToolDefinition(string Name, string Description, object InputSchema, Func<JsonElement, string> Handler);
+    
+    // Resource Models (Internal use)
+    private record ResourceDefinition(string Uri, string Name, string MimeType);
+
+    public record ResourceInfo(string uri, string name, string? mimeType = null, string? description = null);
+    public record ResourceContent(string uri, string? mimeType, string text);
 
     public void RegisterToolsFromAssembly(Assembly assembly)
     {
